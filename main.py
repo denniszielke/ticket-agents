@@ -6,6 +6,7 @@ import json
 from github_fetcher import GitHubIssueFetcher
 from ticket_indexer import TicketIndexer
 from resolution_agent import ResolutionRecommender
+import config
 
 
 @click.group()
@@ -19,7 +20,10 @@ def cli():
 @click.option('--token', help='GitHub access token')
 @click.option('--state', default='all', help='Issue state (open, closed, all)')
 @click.option('--labels', help='Comma-separated list of labels to filter by')
-def index(repo, token, state, labels):
+@click.option('--issue-ids', help='Comma-separated list of specific issue numbers to index')
+@click.option('--issue-types', help='Comma-separated list of issue types/categories to filter by (documentation, configuration, operational, provisioning, general)')
+@click.option('--use-azure-search', is_flag=True, help='Use Azure AI Search instead of local JSON file')
+def index(repo, token, state, labels, issue_ids, issue_types, use_azure_search):
     """Index GitHub issues from a repository."""
     try:
         click.echo("Fetching issues from GitHub...")
@@ -27,16 +31,44 @@ def index(repo, token, state, labels):
         # Parse labels
         label_list = [l.strip() for l in labels.split(',') if l.strip()] if labels else None
         
+        # Parse issue IDs
+        issue_id_list = [int(i.strip()) for i in issue_ids.split(',') if i.strip()] if issue_ids else None
+        
+        # Parse issue types
+        issue_type_list = [t.strip() for t in issue_types.split(',') if t.strip()] if issue_types else None
+        
         # Fetch issues
         fetcher = GitHubIssueFetcher(token=token, repo_name=repo)
-        tickets = fetcher.fetch_issues(state=state, labels=label_list)
+        tickets = fetcher.fetch_issues(state=state, labels=label_list, issue_ids=issue_id_list, issue_types=issue_type_list)
         
         click.echo(f"Fetched {len(tickets)} issues")
         
-        # Index tickets
-        click.echo("Indexing tickets...")
-        indexer = TicketIndexer()
-        indexer.index_tickets(tickets)
+        # Determine which indexer to use
+        use_search = use_azure_search or config.USE_AZURE_SEARCH
+        
+        if use_search:
+            # Use Azure AI Search
+            click.echo("Using Azure AI Search for indexing...")
+            from azure_search_indexer import AzureSearchIndexer
+            
+            indexer = AzureSearchIndexer()
+            
+            # Check if index exists, create if not
+            if not indexer.index_exists():
+                click.echo(f"Creating Azure AI Search index: {indexer.index_name}")
+                indexer.create_index()
+                click.echo("✓ Index created successfully!")
+            else:
+                click.echo(f"Using existing Azure AI Search index: {indexer.index_name}")
+            
+            # Index tickets
+            click.echo("Indexing tickets in Azure AI Search...")
+            indexer.index_tickets(tickets)
+        else:
+            # Use local JSON file
+            click.echo("Using local JSON file for indexing...")
+            indexer = TicketIndexer()
+            indexer.index_tickets(tickets)
         
         click.echo("✓ Indexing complete!")
         
@@ -56,12 +88,19 @@ def index(repo, token, state, labels):
 @cli.command()
 @click.argument('query')
 @click.option('--top-k', default=5, help='Number of similar tickets to find')
-def search(query, top_k):
+@click.option('--use-azure-search', is_flag=True, help='Use Azure AI Search instead of local JSON file')
+def search(query, top_k, use_azure_search):
     """Search for similar tickets."""
     try:
-        indexer = TicketIndexer()
+        use_search = use_azure_search or config.USE_AZURE_SEARCH
         
-        if not indexer.tickets:
+        if use_search:
+            from azure_search_indexer import AzureSearchIndexer
+            indexer = AzureSearchIndexer()
+        else:
+            indexer = TicketIndexer()
+        
+        if not use_search and not indexer.tickets:
             click.echo("No tickets indexed. Run 'index' command first.", err=True)
             return
         
@@ -91,13 +130,20 @@ def search(query, top_k):
 @click.argument('query')
 @click.option('--top-k', default=5, help='Number of similar tickets to consider')
 @click.option('--output', help='Output file for the recommendation (JSON)')
-def recommend(query, top_k, output):
+@click.option('--use-azure-search', is_flag=True, help='Use Azure AI Search instead of local JSON file')
+def recommend(query, top_k, output, use_azure_search):
     """Get resolution recommendation for a new ticket."""
     try:
         # Find similar tickets
-        indexer = TicketIndexer()
+        use_search = use_azure_search or config.USE_AZURE_SEARCH
         
-        if not indexer.tickets:
+        if use_search:
+            from azure_search_indexer import AzureSearchIndexer
+            indexer = AzureSearchIndexer()
+        else:
+            indexer = TicketIndexer()
+        
+        if not use_search and not indexer.tickets:
             click.echo("No tickets indexed. Run 'index' command first.", err=True)
             return
         
@@ -139,12 +185,19 @@ def recommend(query, top_k, output):
 
 
 @cli.command()
-def stats():
+@click.option('--use-azure-search', is_flag=True, help='Use Azure AI Search instead of local JSON file')
+def stats(use_azure_search):
     """Show statistics about indexed tickets."""
     try:
-        indexer = TicketIndexer()
+        use_search = use_azure_search or config.USE_AZURE_SEARCH
         
-        if not indexer.tickets:
+        if use_search:
+            from azure_search_indexer import AzureSearchIndexer
+            indexer = AzureSearchIndexer()
+        else:
+            indexer = TicketIndexer()
+        
+        if not use_search and not indexer.tickets:
             click.echo("No tickets indexed. Run 'index' command first.", err=True)
             return
         

@@ -24,6 +24,15 @@ AZURE_OPENAI_VERSION = os.getenv('AZURE_OPENAI_VERSION', '2024-02-15')
 # Azure AI Project settings
 AZURE_AI_PROJECT_ENDPOINT = os.getenv('AZURE_AI_PROJECT_ENDPOINT')
 
+# Azure AI Search settings
+AZURE_AI_SEARCH_ENDPOINT = os.getenv('AZURE_AI_SEARCH_ENDPOINT')
+AZURE_AI_SEARCH_KEY = os.getenv('AZURE_AI_SEARCH_KEY')
+AZURE_AI_SEARCH_INDEX_NAME = os.getenv('AZURE_AI_SEARCH_INDEX_NAME', 'tickets-index')
+
+# Embedding settings
+EMBEDDING_DIMENSIONS = int(os.getenv('EMBEDDING_DIMENSIONS', '1536'))
+
 # Application settings
 INDEX_FILE = os.getenv('INDEX_FILE', 'ticket_index.json')
 COMPLETION_MODEL_NAME = os.getenv('COMPLETION_MODEL_NAME', 'gpt-4o-mini')
+USE_AZURE_SEARCH = os.getenv('USE_AZURE_SEARCH', 'false').lower() == 'true'

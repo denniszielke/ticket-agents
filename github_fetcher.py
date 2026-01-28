@@ -30,29 +30,51 @@ class GitHubIssueFetcher:
         self.github = Github(self.token)
         self.repo = self.github.get_repo(self.repo_name)
     
-    def fetch_issues(self, state: str = 'all', labels: Optional[List[str]] = None) -> List[Dict]:
+    def fetch_issues(self, state: str = 'all', labels: Optional[List[str]] = None, 
+                     issue_ids: Optional[List[int]] = None, issue_types: Optional[List[str]] = None) -> List[Dict]:
         """
         Fetch issues from the repository.
         
         Args:
             state: Issue state ('open', 'closed', or 'all')
             labels: Optional list of label names to filter by
+            issue_ids: Optional list of specific issue numbers to fetch
+            issue_types: Optional list of issue types/categories to filter by
             
         Returns:
             List of issue dictionaries with relevant information
         """
         issues = []
         
-        # Get issues from repository
-        github_issues = self.repo.get_issues(state=state, labels=labels or [])
-        
-        for issue in github_issues:
-            # Skip pull requests (they also appear as issues in GitHub API)
-            if issue.pull_request:
-                continue
+        # If specific issue IDs are provided, fetch them directly
+        if issue_ids:
+            for issue_id in issue_ids:
+                try:
+                    issue = self.repo.get_issue(number=issue_id)
+                    # Skip pull requests
+                    if issue.pull_request:
+                        continue
+                    issue_data = self._extract_issue_data(issue)
+                    issues.append(issue_data)
+                except Exception as e:
+                    print(f"Warning: Could not fetch issue #{issue_id}: {e}")
+        else:
+            # Get issues from repository
+            github_issues = self.repo.get_issues(state=state, labels=labels or [])
+            
+            for issue in github_issues:
+                # Skip pull requests (they also appear as issues in GitHub API)
+                if issue.pull_request:
+                    continue
+                    
+                issue_data = self._extract_issue_data(issue)
                 
-            issue_data = self._extract_issue_data(issue)
-            issues.append(issue_data)
+                # Filter by issue type/category if specified
+                if issue_types:
+                    if issue_data['category'] not in issue_types:
+                        continue
+                
+                issues.append(issue_data)
         
         return issues
     

@@ -7,6 +7,9 @@ agent-framework --pre
 azure-identity>=1.15.0
 azure-ai-projects>=1.0.0
 
+# Azure AI Search
+azure-search-documents>=11.4.0
+
 # AI/ML dependencies for embeddings and similarity
 numpy>=1.24.0
 scikit-learn>=1.3.0

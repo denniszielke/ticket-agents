@@ -21,6 +21,80 @@ def test_github_fetcher_initialization():
         GitHubIssueFetcher(token="test_token", repo_name=None)
 
 
+def test_fetch_issues_with_ids():
+    """Test fetching specific issues by ID."""
+    from github_fetcher import GitHubIssueFetcher
+    
+    with patch('github_fetcher.Github') as mock_github, patch('github_fetcher.config'):
+        # Mock the GitHub client
+        mock_repo = MagicMock()
+        mock_github.return_value.get_repo.return_value = mock_repo
+        
+        # Mock a single issue
+        mock_issue = MagicMock()
+        mock_issue.number = 123
+        mock_issue.title = "Test Issue"
+        mock_issue.body = "Test body"
+        mock_issue.state = "open"
+        mock_issue.labels = []
+        mock_issue.created_at = MagicMock()
+        mock_issue.created_at.isoformat.return_value = "2024-01-01T00:00:00"
+        mock_issue.updated_at = MagicMock()
+        mock_issue.updated_at.isoformat.return_value = "2024-01-01T00:00:00"
+        mock_issue.closed_at = None
+        mock_issue.html_url = "https://github.com/test/repo/issues/123"
+        mock_issue.pull_request = None
+        mock_issue.get_comments.return_value = []
+        
+        mock_repo.get_issue.return_value = mock_issue
+        
+        # Create fetcher and fetch specific issue
+        fetcher = GitHubIssueFetcher(token="test_token", repo_name="test/repo")
+        tickets = fetcher.fetch_issues(issue_ids=[123])
+        
+        assert len(tickets) == 1
+        assert tickets[0]['number'] == 123
+        assert tickets[0]['title'] == "Test Issue"
+
+
+def test_fetch_issues_with_types():
+    """Test fetching issues filtered by type."""
+    from github_fetcher import GitHubIssueFetcher
+    
+    with patch('github_fetcher.Github') as mock_github, patch('github_fetcher.config'):
+        mock_repo = MagicMock()
+        mock_github.return_value.get_repo.return_value = mock_repo
+        
+        # Mock multiple issues with different categories
+        mock_issues = []
+        for i, category in enumerate(['documentation', 'configuration', 'operational']):
+            mock_issue = MagicMock()
+            mock_issue.number = i + 1
+            mock_issue.title = f"Test {category}"
+            mock_issue.body = f"This is a {category} issue"
+            mock_issue.state = "open"
+            mock_issue.labels = []
+            mock_issue.created_at = MagicMock()
+            mock_issue.created_at.isoformat.return_value = "2024-01-01T00:00:00"
+            mock_issue.updated_at = MagicMock()
+            mock_issue.updated_at.isoformat.return_value = "2024-01-01T00:00:00"
+            mock_issue.closed_at = None
+            mock_issue.html_url = f"https://github.com/test/repo/issues/{i+1}"
+            mock_issue.pull_request = None
+            mock_issue.get_comments.return_value = []
+            mock_issues.append(mock_issue)
+        
+        mock_repo.get_issues.return_value = mock_issues
+        
+        # Fetch with type filter
+        fetcher = GitHubIssueFetcher(token="test_token", repo_name="test/repo")
+        tickets = fetcher.fetch_issues(issue_types=['documentation'])
+        
+        # Should only get documentation issues
+        assert len(tickets) == 1
+        assert tickets[0]['category'] == 'documentation'
+
+
 def test_determine_support_level():
     """Test support level determination."""
     from github_fetcher import GitHubIssueFetcher
@@ -151,6 +225,22 @@ async def test_resolution_agent_confidence():
     # Test low confidence
     assert agent._calculate_confidence(0.5, 2) == 'low'
     assert agent._calculate_confidence(0.7, 1) == 'low'
+
+
+def test_azure_search_indexer_initialization():
+    """Test AzureSearchIndexer initialization."""
+    import config as test_config
+    
+    # Test without endpoint configured
+    original_endpoint = test_config.AZURE_AI_SEARCH_ENDPOINT
+    test_config.AZURE_AI_SEARCH_ENDPOINT = None
+    
+    try:
+        from azure_search_indexer import AzureSearchIndexer
+        with pytest.raises(ValueError, match="Azure AI Search endpoint not provided"):
+            AzureSearchIndexer()
+    finally:
+        test_config.AZURE_AI_SEARCH_ENDPOINT = original_endpoint
 
 
 if __name__ == '__main__':
