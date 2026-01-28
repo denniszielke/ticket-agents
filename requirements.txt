@@ -3,17 +3,16 @@ PyGithub==2.1.1
 python-dotenv==1.0.0
 
 # Microsoft Agent Framework
-agent-framework>=0.1.0
+agent-framework --pre
 azure-identity>=1.15.0
 azure-ai-projects>=1.0.0
 
 # AI/ML dependencies for embeddings and similarity
-openai==1.12.0
-numpy==1.26.3
-scikit-learn==1.4.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
 
 # Data processing
-pandas==2.2.0
+pandas>=2.0.0
 
 # CLI
 click==8.1.7
