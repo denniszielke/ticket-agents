@@ -70,6 +70,38 @@ class AzureSearchIndexer:
         if self.embedding_client is None:
             self.embedding_client = create_embedding_client()
     
+    def _get_completion_client(self):
+        """Get a client for text completions (lazy initialization)."""
+        if not hasattr(self, '_completion_client') or self._completion_client is None:
+            # Import here to avoid circular dependencies
+            from openai import OpenAI, AzureOpenAI
+            
+            # Try Azure OpenAI first
+            if config.AZURE_OPENAI_ENDPOINT:
+                if config.AZURE_OPENAI_API_KEY:
+                    self._completion_client = AzureOpenAI(
+                        azure_endpoint=config.AZURE_OPENAI_ENDPOINT,
+                        api_key=config.AZURE_OPENAI_API_KEY,
+                        api_version=config.AZURE_OPENAI_VERSION
+                    )
+                else:
+                    from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+                    credential = DefaultAzureCredential()
+                    token_provider = get_bearer_token_provider(
+                        credential, "https://cognitiveservices.azure.com/.default"
+                    )
+                    self._completion_client = AzureOpenAI(
+                        azure_endpoint=config.AZURE_OPENAI_ENDPOINT,
+                        azure_ad_token_provider=token_provider,
+                        api_version=config.AZURE_OPENAI_VERSION
+                    )
+            elif config.OPENAI_API_KEY:
+                self._completion_client = OpenAI(api_key=config.OPENAI_API_KEY)
+            else:
+                raise ValueError("No OpenAI or Azure OpenAI configuration found")
+        
+        return self._completion_client
+    
     def create_index(self) -> None:
         """Create the search index with vector search configuration."""
         logger.info(f"Creating Azure AI Search index: {self.index_name}")
@@ -77,6 +109,24 @@ class AzureSearchIndexer:
         # Define the fields for the index
         fields = [
             SimpleField(name="id", type=SearchFieldDataType.String, key=True),
+            SearchableField(name="keywords", type=SearchFieldDataType.Collection(SearchFieldDataType.String), filterable=True),
+            SimpleField(name="github_item_id", type=SearchFieldDataType.Int32, filterable=True, sortable=True),
+            SearchableField(name="github_item_title", type=SearchFieldDataType.String),
+            SearchableField(name="github_item_content", type=SearchFieldDataType.String),
+            SearchableField(name="github_item_facts", type=SearchFieldDataType.String),
+            SearchableField(name="github_intent_summary", type=SearchFieldDataType.String),
+            SearchField(
+                name="github_intent_vector",
+                type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
+                searchable=True,
+                vector_search_dimensions=self.embedding_dimensions,
+                vector_search_profile_name="ticket-vector-profile"
+            ),
+            SearchableField(name="github_actions_summary", type=SearchFieldDataType.String),
+            SearchableField(name="github_solution_summary", type=SearchFieldDataType.String),
+            SimpleField(name="complexity", type=SearchFieldDataType.Int32, filterable=True, sortable=True),
+            
+            # Keep legacy fields for backward compatibility
             SimpleField(name="number", type=SearchFieldDataType.Int32, filterable=True, sortable=True),
             SearchableField(name="title", type=SearchFieldDataType.String),
             SearchableField(name="body", type=SearchFieldDataType.String),
@@ -154,15 +204,46 @@ class AzureSearchIndexer:
         documents = []
         
         for i, ticket in enumerate(tickets):
-            # Create text representation for embedding
+            # Create text representation for embedding (legacy)
             text = self._create_ticket_text(ticket)
             
-            # Generate embedding
-            embedding = self._generate_embedding(text)
+            # Generate content embedding (legacy)
+            content_embedding = self._generate_embedding(text)
             
-            # Prepare document
+            # Generate intent text and embedding (new)
+            intent_summary = self._generate_intent_summary(ticket)
+            intent_embedding = self._generate_embedding(intent_summary)
+            
+            # Generate actions summary (new)
+            actions_summary = self._generate_actions_summary(ticket)
+            
+            # Generate solution summary (new)
+            solution_summary = self._generate_solution_summary(ticket)
+            
+            # Calculate complexity (new)
+            complexity = self._calculate_complexity(ticket)
+            
+            # Extract keywords (new)
+            keywords = self._extract_keywords(ticket)
+            
+            # Create facts (new)
+            facts = self._create_facts(ticket)
+            
+            # Prepare document with new schema
             doc = {
                 'id': str(ticket['number']),
+                # New required fields
+                'keywords': keywords,
+                'github_item_id': ticket['number'],
+                'github_item_title': ticket['title'],
+                'github_item_content': ticket['body'],
+                'github_item_facts': facts,
+                'github_intent_summary': intent_summary,
+                'github_intent_vector': intent_embedding,
+                'github_actions_summary': actions_summary,
+                'github_solution_summary': solution_summary,
+                'complexity': complexity,
+                # Legacy fields for backward compatibility
                 'number': ticket['number'],
                 'title': ticket['title'],
                 'body': ticket['body'],
@@ -174,12 +255,12 @@ class AzureSearchIndexer:
                 'updated_at': ticket['updated_at'],
                 'closed_at': ticket.get('closed_at', ''),
                 'url': ticket['url'],
-                'content_vector': embedding,
+                'content_vector': content_embedding,
             }
             
             documents.append(doc)
             
-            if (i + 1) % 10 == 0:
+            if (i + 1) % 5 == 0:
                 logger.info(f"Prepared {i + 1}/{len(tickets)} tickets for indexing")
         
         # Upload documents in batches
@@ -196,7 +277,7 @@ class AzureSearchIndexer:
         logger.info(f"Successfully indexed {len(tickets)} tickets in Azure AI Search")
     
     def find_similar_tickets(self, query: str, top_k: int = 5, 
-                           category: Optional[str] = None) -> List[Dict]:
+                           category: Optional[str] = None, use_intent_vector: bool = True) -> List[Dict]:
         """
         Find similar tickets to a query using vector search.
         
@@ -204,6 +285,7 @@ class AzureSearchIndexer:
             query: Query text (new ticket description)
             top_k: Number of similar tickets to return
             category: Optional category filter
+            use_intent_vector: Use github_intent_vector for search (default: True)
             
         Returns:
             List of similar tickets with similarity scores
@@ -213,19 +295,24 @@ class AzureSearchIndexer:
         # Generate embedding for query
         query_embedding = self._generate_embedding(query)
         
+        # Choose which vector field to search
+        vector_field = "github_intent_vector" if use_intent_vector else "content_vector"
+        
         # Create vector query
         vector_query = VectorizedQuery(
             vector=query_embedding,
             k_nearest_neighbors=top_k,
-            fields="content_vector"
+            fields=vector_field
         )
         
-        # Build search parameters
+        # Build search parameters - include new fields
         search_params = {
             "search_text": None,
             "vector_queries": [vector_query],
             "select": ["number", "title", "body", "state", "labels", "support_level", 
-                      "category", "created_at", "updated_at", "closed_at", "url"],
+                      "category", "created_at", "updated_at", "closed_at", "url",
+                      "github_item_id", "github_item_title", "github_intent_summary",
+                      "github_actions_summary", "github_solution_summary", "complexity", "keywords"],
             "top": top_k,
         }
         
@@ -241,19 +328,25 @@ class AzureSearchIndexer:
             similar_tickets = []
             for result in results:
                 ticket = {
-                    'number': result['number'],
-                    'title': result['title'],
-                    'body': result['body'],
-                    'state': result['state'],
-                    'labels': result['labels'],
+                    'number': result.get('number', result.get('github_item_id', 0)),
+                    'title': result.get('title', result.get('github_item_title', '')),
+                    'body': result.get('body', ''),
+                    'state': result.get('state', ''),
+                    'labels': result.get('labels', []),
                     'support_level': result.get('support_level', ''),
                     'category': result.get('category', 'general'),
-                    'created_at': result['created_at'],
-                    'updated_at': result['updated_at'],
+                    'created_at': result.get('created_at', ''),
+                    'updated_at': result.get('updated_at', ''),
                     'closed_at': result.get('closed_at', ''),
-                    'url': result['url'],
+                    'url': result.get('url', ''),
                     'similarity_score': result.get('@search.score', 0.0),
-                    'comments': []  # Comments not stored in search index
+                    'comments': [],  # Comments not stored in search index
+                    # Add new fields
+                    'intent_summary': result.get('github_intent_summary', ''),
+                    'actions_summary': result.get('github_actions_summary', ''),
+                    'solution_summary': result.get('github_solution_summary', ''),
+                    'complexity': result.get('complexity', 0),
+                    'keywords': result.get('keywords', []),
                 }
                 similar_tickets.append(ticket)
             
@@ -366,3 +459,252 @@ class AzureSearchIndexer:
             dimensions=self.embedding_dimensions
         )
         return response.data[0].embedding
+    
+    def _generate_intent_summary(self, ticket: Dict) -> str:
+        """
+        Generate an AI summary of what the issue is asking for.
+        
+        Args:
+            ticket: Ticket dictionary
+            
+        Returns:
+            Summary of the intent
+        """
+        try:
+            client = self._get_completion_client()
+            model = config.COMPLETION_MODEL_NAME
+            
+            prompt = f"""Analyze this GitHub issue and provide a concise 2-3 sentence summary of what the user is asking for or requesting.
+
+Title: {ticket['title']}
+Body: {ticket['body'][:1000]}  # Limit to first 1000 chars
+Labels: {', '.join(ticket['labels'])}
+
+Provide only the summary, no preamble."""
+
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You are a technical issue analyst. Provide concise summaries of issue intents."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=150
+            )
+            
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            logger.warning(f"Failed to generate intent summary: {e}")
+            return f"Issue about: {ticket['title']}"
+    
+    def _generate_actions_summary(self, ticket: Dict) -> str:
+        """
+        Generate an AI summary of the activities and actions taken on the issue.
+        
+        Args:
+            ticket: Ticket dictionary
+            
+        Returns:
+            Summary of actions
+        """
+        try:
+            client = self._get_completion_client()
+            model = config.COMPLETION_MODEL_NAME
+            
+            comments_text = ""
+            if ticket.get('comments'):
+                # Get first few and last few comments
+                comments = ticket['comments']
+                sample_comments = comments[:3] + comments[-3:] if len(comments) > 6 else comments
+                comments_text = "\n".join([f"- {c['body'][:200]}" for c in sample_comments])
+            
+            if not comments_text:
+                return "No activities recorded yet."
+            
+            prompt = f"""Analyze the activities on this GitHub issue and provide a 2-3 sentence summary of key actions taken.
+
+Title: {ticket['title']}
+Comments:
+{comments_text}
+
+Provide only the summary, no preamble."""
+
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You are a technical issue analyst. Summarize issue activities concisely."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=150
+            )
+            
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            logger.warning(f"Failed to generate actions summary: {e}")
+            return "Activities not summarized."
+    
+    def _generate_solution_summary(self, ticket: Dict) -> str:
+        """
+        Generate an AI summary of how the issue was resolved (for closed issues).
+        
+        Args:
+            ticket: Ticket dictionary
+            
+        Returns:
+            Summary of the solution
+        """
+        if ticket['state'] != 'closed':
+            return "Issue is still open."
+        
+        try:
+            client = self._get_completion_client()
+            model = config.COMPLETION_MODEL_NAME
+            
+            # Get last few comments which likely contain resolution
+            resolution_text = ""
+            if ticket.get('comments'):
+                resolution_comments = ticket['comments'][-5:]
+                resolution_text = "\n".join([f"- {c['body'][:200]}" for c in resolution_comments])
+            
+            if not resolution_text:
+                return "Issue closed without resolution comments."
+            
+            prompt = f"""Analyze how this GitHub issue was resolved and provide a 2-3 sentence summary of the solution.
+
+Title: {ticket['title']}
+Final Comments:
+{resolution_text}
+
+Provide only the summary, no preamble."""
+
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You are a technical issue analyst. Summarize issue resolutions concisely."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=150
+            )
+            
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            logger.warning(f"Failed to generate solution summary: {e}")
+            return "Resolution not summarized."
+    
+    def _calculate_complexity(self, ticket: Dict) -> int:
+        """
+        Calculate a complexity score for the issue (1-10 scale).
+        
+        Args:
+            ticket: Ticket dictionary
+            
+        Returns:
+            Complexity score (1-10)
+        """
+        complexity = 1
+        
+        # Factors that increase complexity:
+        # 1. Length of description
+        body_length = len(ticket.get('body', ''))
+        if body_length > 2000:
+            complexity += 3
+        elif body_length > 1000:
+            complexity += 2
+        elif body_length > 500:
+            complexity += 1
+        
+        # 2. Number of comments (indicates discussion/iteration)
+        comment_count = len(ticket.get('comments', []))
+        if comment_count > 20:
+            complexity += 3
+        elif comment_count > 10:
+            complexity += 2
+        elif comment_count > 5:
+            complexity += 1
+        
+        # 3. Support level
+        support_level = ticket.get('support_level', '')
+        if support_level == 'L3':
+            complexity += 2
+        elif support_level == 'L2':
+            complexity += 1
+        
+        # 4. Time to resolution (if closed)
+        if ticket['state'] == 'closed' and ticket.get('closed_at'):
+            from datetime import datetime
+            try:
+                created = datetime.fromisoformat(ticket['created_at'].replace('Z', '+00:00'))
+                closed = datetime.fromisoformat(ticket['closed_at'].replace('Z', '+00:00'))
+                days_open = (closed - created).days
+                if days_open > 30:
+                    complexity += 2
+                elif days_open > 14:
+                    complexity += 1
+            except:
+                pass
+        
+        # Cap at 10
+        return min(complexity, 10)
+    
+    def _extract_keywords(self, ticket: Dict) -> List[str]:
+        """
+        Extract keywords from the ticket.
+        
+        Args:
+            ticket: Ticket dictionary
+            
+        Returns:
+            List of keywords
+        """
+        keywords = []
+        
+        # Add category
+        if ticket.get('category'):
+            keywords.append(ticket['category'])
+        
+        # Add support level
+        if ticket.get('support_level'):
+            keywords.append(ticket['support_level'])
+        
+        # Add labels
+        keywords.extend(ticket.get('labels', []))
+        
+        # Add state
+        keywords.append(ticket['state'])
+        
+        # Deduplicate and return
+        return list(set(keywords))
+    
+    def _create_facts(self, ticket: Dict) -> str:
+        """
+        Create a structured facts summary about the issue.
+        
+        Args:
+            ticket: Ticket dictionary
+            
+        Returns:
+            Formatted facts string
+        """
+        facts = []
+        
+        facts.append(f"Issue #{ticket['number']}")
+        facts.append(f"State: {ticket['state']}")
+        facts.append(f"Category: {ticket.get('category', 'general')}")
+        
+        if ticket.get('support_level'):
+            facts.append(f"Support Level: {ticket['support_level']}")
+        
+        if ticket.get('labels'):
+            facts.append(f"Labels: {', '.join(ticket['labels'])}")
+        
+        facts.append(f"Created: {ticket['created_at']}")
+        
+        if ticket.get('closed_at'):
+            facts.append(f"Closed: {ticket['closed_at']}")
+        
+        comment_count = len(ticket.get('comments', []))
+        facts.append(f"Comments: {comment_count}")
+        
+        return " | ".join(facts)
