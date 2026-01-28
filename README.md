@@ -211,12 +211,39 @@ The `model_client.py` provides a unified interface supporting:
 
 ### Azure AI Search Integration
 
-The `azure_search_indexer.py` provides enterprise-grade vector storage:
+The `azure_search_indexer.py` provides enterprise-grade vector storage with enhanced schema:
+
+**Authentication & Infrastructure:**
 - **Authentication**: API key or managed identity (DefaultAzureCredential)
 - **Auto Index Creation**: Creates index schema automatically on first run
 - **Vector Search**: HNSW algorithm for efficient similarity search
 - **Scalability**: Handles large ticket datasets efficiently
 - **Production Ready**: Managed Azure service with HA and backup
+
+**Index Schema - Enhanced Fields:**
+
+The index includes the following fields for comprehensive ticket analysis:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | String (Key) | Unique document identifier |
+| `keywords` | Collection | Auto-extracted keywords (category, labels, state) |
+| `github_item_id` | Int32 | GitHub issue number reference |
+| `github_item_title` | String | Issue title |
+| `github_item_content` | String | Full issue content/body |
+| `github_item_facts` | String | Structured metadata (state, category, dates, etc.) |
+| `github_intent_summary` | String | AI-generated summary of user's request |
+| `github_intent_vector` | Vector (1536d) | Semantic embedding of intent for similarity search |
+| `github_actions_summary` | String | AI-generated summary of activities/discussions |
+| `github_solution_summary` | String | AI-generated summary of resolution (for closed issues) |
+| `complexity` | Int32 | Complexity score (1-10) based on length, comments, time |
+
+**AI-Enhanced Indexing:**
+- Automatically generates intent summaries during indexing
+- Creates action and solution summaries from comments
+- Calculates complexity scores based on multiple factors
+- Extracts and normalizes keywords for better filtering
+- Maintains backward compatibility with legacy fields
 
 All data is stored in Azure AI Search - no local storage required.
 
@@ -235,6 +262,16 @@ Automatic categorization based on content and labels:
 - **Operational**: Incidents, outages, performance
 - **Provisioning**: Cluster creation, deployment
 - **General**: Other issues
+
+## Complexity Scoring
+
+The system automatically calculates a complexity score (1-10) for each issue based on:
+- **Body Length**: Longer descriptions indicate more complex issues
+- **Comment Count**: More discussion suggests complexity
+- **Support Level**: L3 issues are more complex than L1
+- **Time to Resolution**: Longer resolution time indicates complexity
+
+This helps prioritize and categorize tickets for appropriate routing.
 
 ## Example Workflows
 
