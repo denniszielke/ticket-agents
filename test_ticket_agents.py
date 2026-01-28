@@ -155,58 +155,6 @@ def test_determine_category():
         ) == 'provisioning'
 
 
-def test_ticket_indexer_initialization():
-    """Test TicketIndexer initialization."""
-    from ticket_indexer import TicketIndexer
-    
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-        index_file = f.name
-    
-    try:
-        indexer = TicketIndexer(index_file=index_file)
-        
-        assert indexer.index_file == index_file
-        assert indexer.tickets == []
-        assert indexer.embeddings == []
-    finally:
-        if os.path.exists(index_file):
-            os.unlink(index_file)
-
-
-def test_ticket_indexer_stats():
-    """Test ticket statistics."""
-    from ticket_indexer import TicketIndexer
-    
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-        index_file = f.name
-    
-    try:
-        indexer = TicketIndexer(index_file=index_file)
-        
-        # Test empty stats
-        stats = indexer.get_stats()
-        assert stats['total_tickets'] == 0
-        
-        # Add some test tickets
-        indexer.tickets = [
-            {'state': 'open', 'category': 'documentation', 'support_level': 'L1'},
-            {'state': 'closed', 'category': 'configuration', 'support_level': 'L2'},
-            {'state': 'closed', 'category': 'documentation', 'support_level': 'L1'},
-        ]
-        
-        stats = indexer.get_stats()
-        assert stats['total_tickets'] == 3
-        assert stats['by_state']['open'] == 1
-        assert stats['by_state']['closed'] == 2
-        assert stats['by_category']['documentation'] == 2
-        assert stats['by_category']['configuration'] == 1
-        assert stats['by_support_level']['L1'] == 2
-        assert stats['by_support_level']['L2'] == 1
-    finally:
-        if os.path.exists(index_file):
-            os.unlink(index_file)
-
-
 @pytest.mark.asyncio
 async def test_resolution_agent_confidence():
     """Test confidence calculation in ResolutionAgent."""
