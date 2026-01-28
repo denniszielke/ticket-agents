@@ -24,14 +24,17 @@ class TicketIndexer:
         self.index_file = index_file or config.INDEX_FILE
         self.tickets = []
         self.embeddings = []
-        
-        # Initialize OpenAI client
-        if not config.OPENAI_API_KEY:
-            raise ValueError("OpenAI API key not provided")
-        self.client = OpenAI(api_key=config.OPENAI_API_KEY)
+        self.client = None
         
         # Load existing index if available
         self.load_index()
+    
+    def _ensure_client(self):
+        """Ensure OpenAI client is initialized."""
+        if self.client is None:
+            if not config.OPENAI_API_KEY:
+                raise ValueError("OpenAI API key not provided")
+            self.client = OpenAI(api_key=config.OPENAI_API_KEY)
     
     def index_tickets(self, tickets: List[Dict]) -> None:
         """
@@ -135,6 +138,7 @@ class TicketIndexer:
         Returns:
             Embedding vector
         """
+        self._ensure_client()
         response = self.client.embeddings.create(
             model="text-embedding-3-small",
             input=text
