@@ -7,8 +7,8 @@ import os
 from typing import List, Dict, Optional
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-from openai import OpenAI
 import config
+from model_client import create_embedding_client
 
 
 class TicketIndexer:
@@ -24,17 +24,15 @@ class TicketIndexer:
         self.index_file = index_file or config.INDEX_FILE
         self.tickets = []
         self.embeddings = []
-        self.client = None
+        self.embedding_client = None
         
         # Load existing index if available
         self.load_index()
     
-    def _ensure_client(self):
-        """Ensure OpenAI client is initialized."""
-        if self.client is None:
-            if not config.OPENAI_API_KEY:
-                raise ValueError("OpenAI API key not provided")
-            self.client = OpenAI(api_key=config.OPENAI_API_KEY)
+    def _ensure_embedding_client(self):
+        """Ensure embedding client is initialized."""
+        if self.embedding_client is None:
+            self.embedding_client = create_embedding_client()
     
     def index_tickets(self, tickets: List[Dict]) -> None:
         """
@@ -130,7 +128,7 @@ class TicketIndexer:
     
     def _generate_embedding(self, text: str) -> List[float]:
         """
-        Generate embedding for text using OpenAI API.
+        Generate embedding for text using the embedding client.
         
         Args:
             text: Text to embed
@@ -138,9 +136,9 @@ class TicketIndexer:
         Returns:
             Embedding vector
         """
-        self._ensure_client()
-        response = self.client.embeddings.create(
-            model="text-embedding-3-small",
+        self._ensure_embedding_client()
+        response = self.embedding_client.embeddings.create(
+            model=config.AZURE_OPENAI_EMBEDDING_MODEL if config.AZURE_OPENAI_ENDPOINT else "text-embedding-3-small",
             input=text
         )
         return response.data[0].embedding

@@ -6,7 +6,7 @@ This script demonstrates how to use the ticket-agents programmatically.
 import os
 from github_fetcher import GitHubIssueFetcher
 from ticket_indexer import TicketIndexer
-from resolution_recommender import ResolutionRecommender
+from resolution_agent import ResolutionRecommender
 
 
 def main():

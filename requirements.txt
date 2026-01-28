@@ -2,6 +2,11 @@
 PyGithub==2.1.1
 python-dotenv==1.0.0
 
+# Microsoft Agent Framework
+agent-framework>=0.1.0
+azure-identity>=1.15.0
+azure-ai-projects>=1.0.0
+
 # AI/ML dependencies for embeddings and similarity
 openai==1.12.0
 numpy==1.26.3
@@ -15,3 +20,4 @@ click==8.1.7
 
 # Testing
 pytest==7.4.3
+pytest-asyncio==0.23.3

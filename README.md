@@ -1,15 +1,18 @@
 # Ticket Agents
 
-An intelligent GitHub issue resolution recommendation system for Kubernetes support teams. This application indexes historical GitHub issues (troubleshooting tickets) and provides AI-powered resolution recommendations for new tickets based on similar past issues.
+An intelligent GitHub issue resolution recommendation system for Kubernetes support teams, built with the **Microsoft Agent Framework**. This application indexes historical GitHub issues (troubleshooting tickets) and provides AI-powered resolution recommendations for new tickets based on similar past issues.
 
 ## Features
 
+- 🤖 **Microsoft Agent Framework**: Built on Microsoft's agent-framework for robust, scalable AI agents
+- 🔄 **Flexible Model Support**: Works with OpenAI, Azure OpenAI, and Azure AI Project endpoints
 - 🔍 **Issue Indexing**: Fetches and indexes GitHub issues with semantic embeddings
 - 🎯 **Smart Search**: Finds similar historical tickets using semantic similarity
-- 🤖 **AI Recommendations**: Generates resolution recommendations based on similar resolved tickets
+- 💡 **AI Recommendations**: Generates resolution recommendations based on similar resolved tickets
 - 📊 **Multi-Level Support**: Handles first, second, and third-level support categorization
 - 📝 **Category Detection**: Automatically categorizes tickets (documentation, configuration, operational, provisioning)
 - 📈 **Statistics**: Provides insights into your ticket database
+- 🔭 **Observability**: Optional Azure Application Insights integration
 
 ## Use Cases
 
@@ -37,10 +40,33 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `.env` and add your credentials:
-- `GITHUB_TOKEN`: Your GitHub personal access token
-- `GITHUB_REPO`: Repository in format `owner/repository`
-- `OPENAI_API_KEY`: Your OpenAI API key
+Edit `.env` and configure your preferred AI provider:
+
+**Option 1: OpenAI (Direct)**
+```env
+OPENAI_API_KEY=your_openai_api_key
+COMPLETION_MODEL_NAME=gpt-4o-mini
+```
+
+**Option 2: Azure OpenAI**
+```env
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+AZURE_OPENAI_API_KEY=your_azure_openai_key
+AZURE_OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+COMPLETION_MODEL_NAME=gpt-4o-mini
+```
+
+**Option 3: Azure AI Project (with Azure AI Agents)**
+```env
+AZURE_AI_PROJECT_ENDPOINT=https://your-project.api.azureml.ms
+COMPLETION_MODEL_NAME=gpt-4o-mini
+```
+
+Also configure GitHub access:
+```env
+GITHUB_TOKEN=your_github_token
+GITHUB_REPO=owner/repository
+```
 
 ## Usage
 
@@ -119,16 +145,29 @@ python main.py stats
 
 ## Architecture
 
+The system is built on the **Microsoft Agent Framework**, providing a robust foundation for AI agent orchestration and flexible model deployment.
+
 ```
 ticket-agents/
 ├── config.py                    # Configuration management
+├── model_client.py              # Flexible model client (Azure OpenAI + OpenAI)
 ├── github_fetcher.py            # GitHub API integration
 ├── ticket_indexer.py            # Indexing and similarity search
-├── resolution_recommender.py    # AI-powered recommendations
+├── resolution_agent.py          # AI agent for recommendations (Agent Framework)
+├── resolution_recommender.py    # Legacy sync interface (deprecated)
 ├── main.py                      # CLI interface
 ├── requirements.txt             # Python dependencies
 └── ticket_index.json            # Indexed tickets (generated)
 ```
+
+### Model Client
+
+The `model_client.py` provides a unified interface supporting:
+- **OpenAI**: Direct OpenAI API access
+- **Azure OpenAI**: Azure-hosted OpenAI models with API key or AAD auth
+- **Azure AI Project**: Full Azure AI Agent service with observability
+
+The system automatically selects the appropriate client based on environment variables.
 
 ## Support Level Detection
 
@@ -171,13 +210,21 @@ python main.py search "node pool scaling issue"
 
 ## Environment Variables
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `GITHUB_TOKEN` | GitHub personal access token | Yes |
-| `GITHUB_REPO` | Repository name (owner/repo) | Yes |
-| `OPENAI_API_KEY` | OpenAI API key | Yes |
-| `OPENAI_MODEL` | OpenAI model to use | No (default: gpt-4o-mini) |
-| `INDEX_FILE` | Path to index file | No (default: ticket_index.json) |
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `GITHUB_TOKEN` | GitHub personal access token | Yes | - |
+| `GITHUB_REPO` | Repository name (owner/repo) | Yes | - |
+| `OPENAI_API_KEY` | OpenAI API key | Conditional* | - |
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL | Conditional* | - |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key | No | - |
+| `AZURE_OPENAI_EMBEDDING_MODEL` | Embedding model deployment name | No | text-embedding-3-small |
+| `AZURE_OPENAI_VERSION` | Azure OpenAI API version | No | 2024-02-15 |
+| `AZURE_AI_PROJECT_ENDPOINT` | Azure AI Project endpoint | Conditional* | - |
+| `COMPLETION_MODEL_NAME` | Model/deployment name for completions | No | gpt-4o-mini |
+| `INDEX_FILE` | Path to index file | No | ticket_index.json |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | App Insights for observability | No | - |
+
+\* At least one AI provider must be configured: `OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, or `AZURE_AI_PROJECT_ENDPOINT`
 
 ## Troubleshooting
 

@@ -5,7 +5,7 @@ import click
 import json
 from github_fetcher import GitHubIssueFetcher
 from ticket_indexer import TicketIndexer
-from resolution_recommender import ResolutionRecommender
+from resolution_agent import ResolutionRecommender
 
 
 @click.group()

@@ -89,16 +89,11 @@ def test_ticket_indexer_initialization():
         index_file = f.name
     
     try:
-        # Mock OpenAI
-        with patch('ticket_indexer.OpenAI'), patch('ticket_indexer.config') as mock_config:
-            mock_config.OPENAI_API_KEY = 'test_key'
-            mock_config.INDEX_FILE = index_file
-            
-            indexer = TicketIndexer(index_file=index_file)
-            
-            assert indexer.index_file == index_file
-            assert indexer.tickets == []
-            assert indexer.embeddings == []
+        indexer = TicketIndexer(index_file=index_file)
+        
+        assert indexer.index_file == index_file
+        assert indexer.tickets == []
+        assert indexer.embeddings == []
     finally:
         if os.path.exists(index_file):
             os.unlink(index_file)
@@ -112,57 +107,50 @@ def test_ticket_indexer_stats():
         index_file = f.name
     
     try:
-        with patch('ticket_indexer.OpenAI'), patch('ticket_indexer.config') as mock_config:
-            mock_config.OPENAI_API_KEY = 'test_key'
-            mock_config.INDEX_FILE = index_file
-            
-            indexer = TicketIndexer(index_file=index_file)
-            
-            # Test empty stats
-            stats = indexer.get_stats()
-            assert stats['total_tickets'] == 0
-            
-            # Add some test tickets
-            indexer.tickets = [
-                {'state': 'open', 'category': 'documentation', 'support_level': 'L1'},
-                {'state': 'closed', 'category': 'configuration', 'support_level': 'L2'},
-                {'state': 'closed', 'category': 'documentation', 'support_level': 'L1'},
-            ]
-            
-            stats = indexer.get_stats()
-            assert stats['total_tickets'] == 3
-            assert stats['by_state']['open'] == 1
-            assert stats['by_state']['closed'] == 2
-            assert stats['by_category']['documentation'] == 2
-            assert stats['by_category']['configuration'] == 1
-            assert stats['by_support_level']['L1'] == 2
-            assert stats['by_support_level']['L2'] == 1
+        indexer = TicketIndexer(index_file=index_file)
+        
+        # Test empty stats
+        stats = indexer.get_stats()
+        assert stats['total_tickets'] == 0
+        
+        # Add some test tickets
+        indexer.tickets = [
+            {'state': 'open', 'category': 'documentation', 'support_level': 'L1'},
+            {'state': 'closed', 'category': 'configuration', 'support_level': 'L2'},
+            {'state': 'closed', 'category': 'documentation', 'support_level': 'L1'},
+        ]
+        
+        stats = indexer.get_stats()
+        assert stats['total_tickets'] == 3
+        assert stats['by_state']['open'] == 1
+        assert stats['by_state']['closed'] == 2
+        assert stats['by_category']['documentation'] == 2
+        assert stats['by_category']['configuration'] == 1
+        assert stats['by_support_level']['L1'] == 2
+        assert stats['by_support_level']['L2'] == 1
     finally:
         if os.path.exists(index_file):
             os.unlink(index_file)
 
 
-def test_resolution_recommender_confidence():
-    """Test confidence calculation."""
-    from resolution_recommender import ResolutionRecommender
+@pytest.mark.asyncio
+async def test_resolution_agent_confidence():
+    """Test confidence calculation in ResolutionAgent."""
+    from resolution_agent import ResolutionAgent
     
-    with patch('resolution_recommender.OpenAI'), patch('resolution_recommender.config') as mock_config:
-        mock_config.OPENAI_API_KEY = 'test_key'
-        mock_config.OPENAI_MODEL = 'gpt-4o-mini'
-        
-        recommender = ResolutionRecommender()
-        
-        # Test high confidence
-        assert recommender._calculate_confidence(0.9, 5) == 'high'
-        assert recommender._calculate_confidence(0.85, 3) == 'high'
-        
-        # Test medium confidence
-        assert recommender._calculate_confidence(0.7, 3) == 'medium'
-        assert recommender._calculate_confidence(0.65, 2) == 'medium'
-        
-        # Test low confidence
-        assert recommender._calculate_confidence(0.5, 2) == 'low'
-        assert recommender._calculate_confidence(0.7, 1) == 'low'
+    agent = ResolutionAgent()
+    
+    # Test high confidence
+    assert agent._calculate_confidence(0.9, 5) == 'high'
+    assert agent._calculate_confidence(0.85, 3) == 'high'
+    
+    # Test medium confidence
+    assert agent._calculate_confidence(0.7, 3) == 'medium'
+    assert agent._calculate_confidence(0.65, 2) == 'medium'
+    
+    # Test low confidence
+    assert agent._calculate_confidence(0.5, 2) == 'low'
+    assert agent._calculate_confidence(0.7, 1) == 'low'
 
 
 if __name__ == '__main__':
